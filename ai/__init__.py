@@ -1,0 +1,1 @@
+"""Reusable AI generation primitives."""
