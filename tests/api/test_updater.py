@@ -183,6 +183,29 @@ class UpdateTests(unittest.TestCase):
         self.assertIn('重名', state['message'])
         self.assertEqual((self.root / 'new-config.txt').read_text(), 'LOCAL CONFIG')
 
+    def test_leading_space_in_ignored_filename_is_preserved(self):
+        (self.root/'.git/info/exclude').write_text(' local-config.txt\n')
+        (self.root/' local-config.txt').write_text('LOCAL CONFIG')
+        self.publish(' local-config.txt', 'Upstream file')
+        self.assertIn('重名', self.manager.check()['message'])
+        self.assertEqual((self.root/' local-config.txt').read_text(), 'LOCAL CONFIG')
+
+    def test_rename_destination_cannot_overwrite_ignored_local_file(self):
+        (self.root/'.git/info/exclude').write_text('new-config.txt\n')
+        (self.root/'new-config.txt').write_text('LOCAL CONFIG')
+        git(self.author, 'mv', 'README.md', 'new-config.txt')
+        self.commit('Rename documentation')
+        git(self.author, 'push', 'origin', 'main')
+        self.assertIn('重名', self.manager.check()['message'])
+        self.assertEqual((self.root/'new-config.txt').read_text(), 'LOCAL CONFIG')
+
+    def test_ignored_parent_file_cannot_be_replaced_by_new_directory(self):
+        (self.root/'.git/info/exclude').write_text('new-config\n')
+        (self.root/'new-config').write_text('LOCAL CONFIG')
+        self.publish('new-config/options.txt', 'Upstream file')
+        self.assertIn('冲突', self.manager.check()['message'])
+        self.assertEqual((self.root/'new-config').read_text(), 'LOCAL CONFIG')
+
     def test_apply_refuses_unchecked_target_busy_jobs_and_peer_service(self):
         target = self.publish()
         with self.assertRaisesRegex(UpdateError, '过期'):
@@ -198,6 +221,17 @@ class UpdateTests(unittest.TestCase):
         finally:
             peer.close()
         self.assertFalse(self.manager.lock_path.exists())
+
+    def test_preparation_failure_releases_lock_and_keeps_service_running(self):
+        from unittest.mock import patch
+        target = self.publish()
+        self.manager.check()
+        with patch('backend.updater.shutil.copyfile', side_effect=OSError('disk full')):
+            with self.assertRaisesRegex(UpdateError, '服务保持运行'):
+                self.manager.apply(target, lambda: '', lambda: self.fail('Service must not stop'))
+        self.assertFalse(self.manager.lock_path.exists())
+        self.assertFalse(self.manager.stopping)
+        self.assertEqual(git(self.root, 'rev-parse', 'HEAD'), self.before)
 
     def test_stale_status_recovers_and_new_service_requires_worker_token(self):
         write_json(self.manager.status_path, {'phase': 'updating'})

@@ -83,7 +83,7 @@ def redact(value):
     return re.sub(r"(https?://)[^\s/@]+:[^\s/@]+@", r"\1[REDACTED]@", text)[-1600:]
 
 
-def command(arguments, root, *, timeout=90, allowed=(0,)):
+def command(arguments, root, *, timeout=90, allowed=(0,), strip=True):
     env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GCM_INTERACTIVE="Never", PIP_NO_INPUT="1")
     try:
         result = subprocess.run(arguments, cwd=root, env=env, capture_output=True, text=True,
@@ -94,7 +94,7 @@ def command(arguments, root, *, timeout=90, allowed=(0,)):
         raise UpdateError("更新操作超时，请检查网络后重试。") from exc
     if result.returncode not in allowed:
         raise UpdateError(redact(result.stderr.strip() or result.stdout.strip() or "更新命令未成功"))
-    return result.stdout.strip()
+    return result.stdout.strip() if strip else result.stdout
 
 
 def git(root, *arguments, **options):
@@ -103,7 +103,7 @@ def git(root, *arguments, **options):
 
 
 def validate_tree(root, sha):
-    records = command(["git", "ls-tree", "-rz", "--full-tree", sha], root).split("\0")
+    records = command(["git", "ls-tree", "-rz", "--full-tree", sha], root, strip=False).split("\0")
     for row in records:
         if not row:
             continue
@@ -123,10 +123,18 @@ def validate_tree(root, sha):
 
 def validate_transition(root, current, target):
     validate_tree(root, target)
-    added = command(["git", "diff", "--name-only", "--diff-filter=A", "-z", current, target], root)
+    added = command(["git", "diff", "--no-renames", "--name-only", "--diff-filter=A", "-z", current, target], root, strip=False)
     for name in added.split("\0"):
-        if name and ((Path(root) / name).exists() or (Path(root) / name).is_symlink()):
+        if not name:
+            continue
+        destination = Path(root) / name
+        if destination.exists() or destination.is_symlink():
             raise UpdateError("新版本的文件路径与本地文件重名，请先备份处理：" + name)
+        for parent in destination.parents:
+            if parent == Path(root):
+                break
+            if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+                raise UpdateError("新版本目录与本地文件或链接冲突，请先备份处理：" + name)
 
 
 def repository_state(root, *, expected_remote=REMOTE):
@@ -273,29 +281,32 @@ class UpdateManager:
                 descriptor = os.open(self.lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             except FileExistsError as exc:
                 raise UpdateError("已有更新正在进行。") from exc
-            with os.fdopen(descriptor, "w") as handle:
-                json.dump({"pid": os.getpid(), "operation": operation}, handle)
-            destination = self.folder / operation
-            destination.mkdir()
-            plan = {"root": str(self.root), "operation": operation, "before_sha": current,
-                    "target_sha": target, "remote": self.remote, "python": self.python,
-                    "port": self.port, "project": self.project, "canvas_only": self.canvas_only,
-                    "canvas_root": self.canvas_root}
-            worker = destination / "worker.py"
-            shutil.copyfile(Path(__file__), worker)
-            write_json(destination / "plan.json", plan)
-            write_json(self.status_path, {"phase": "stopping", "operation": operation, "target_sha": target,
-                                          "message": "正在停止空闲服务，准备更新…", "updated_at": now()})
             try:
+                with os.fdopen(descriptor, "w") as handle:
+                    json.dump({"pid": os.getpid(), "operation": operation}, handle)
+                destination = self.folder / operation
+                destination.mkdir()
+                plan = {"root": str(self.root), "operation": operation, "before_sha": current,
+                        "target_sha": target, "remote": self.remote, "python": self.python,
+                        "port": self.port, "project": self.project, "canvas_only": self.canvas_only,
+                        "canvas_root": self.canvas_root}
+                worker = destination / "worker.py"
+                shutil.copyfile(Path(__file__), worker)
+                write_json(destination / "plan.json", plan)
+                write_json(self.status_path, {"phase": "stopping", "operation": operation, "target_sha": target,
+                                              "message": "正在停止空闲服务，准备更新…", "updated_at": now()})
                 with (destination / "worker.log").open("ab") as output:
                     child = subprocess.Popen([getattr(sys, "_base_executable", sys.executable), str(worker), str(destination / "plan.json")],
                                              cwd=self.root, stdout=output, stderr=output, stdin=subprocess.DEVNULL,
                                              start_new_session=True)
                 write_json(self.lock_path, {"pid": child.pid, "operation": operation})
-            except Exception:
+            except Exception as exc:
                 self.lock_path.unlink(missing_ok=True)
-                write_json(self.status_path, {"phase": "failed", "message": "无法启动更新进程，服务保持运行。"})
-                raise
+                try:
+                    write_json(self.status_path, {"phase": "failed", "message": "无法准备更新，服务保持运行。"})
+                except OSError:
+                    pass
+                raise UpdateError("无法准备更新，服务保持运行：" + redact(exc)) from exc
             self.operation = operation
             self.stopping = True
             threading.Thread(target=shutdown, name="update-shutdown", daemon=True).start()
