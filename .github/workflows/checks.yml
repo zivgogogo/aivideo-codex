@@ -20,10 +20,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install Chinese fonts for subtitle export
+      - name: Install pinned Noto CJK font for subtitle export
         run: |
-          sudo apt-get update
-          sudo apt-get install -y fonts-noto-cjk
+          # Official Noto source, pinned to a commit and content checksum.
+          curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 120 \
+            --output "$RUNNER_TEMP/NotoSansCJK-Regular.ttc" \
+            https://raw.githubusercontent.com/notofonts/noto-cjk/f8d157532fbfaeda587e826d4cd5b21a49186f7c/Sans/OTC/NotoSansCJK-Regular.ttc
+          echo "b76b0433203017ca80401b2ee0dd69350349871c4b19d504c34dbdd80541690a  $RUNNER_TEMP/NotoSansCJK-Regular.ttc" | sha256sum --check
+          sudo install -D -m 644 "$RUNNER_TEMP/NotoSansCJK-Regular.ttc" /usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc
       - name: Initialize a fresh checkout
         run: python scripts/setup_project.py
       - name: Check upload contents and Git history
