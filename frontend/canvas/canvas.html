@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#111113" />
     <title>映序 · AI短剧画布</title>
     <link rel="stylesheet" href="/canvas.css" />
+    <link rel="stylesheet" href="/app-update.css" />
   </head>
   <body>
     <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg">
@@ -90,6 +91,7 @@
       <span class="local-badge">本地工作空间</span>
       <div class="top-spacer"></div>
       <button id="save-status" class="save-status" title="查看保存记录" role="status">连接中</button>
+      <button id="app-update-button" type="button">检查更新</button>
       <button class="quiet" id="jobs-button">
         <span class="status-dot"></span>生成任务<span id="job-count"></span>
       </button>
@@ -441,6 +443,7 @@
       hidden
     />
     <input id="media-file" type="file" accept=".png,.jpg,.jpeg,.webp,.mp4,.mov" multiple hidden />
+    <script src="/app-update.js" defer></script>
     <script src="/canvas-sync.js?v=20261105" defer></script>
     <script src="/canvas-compose.js?v=20261105" defer></script>
     <script src="/canvas.js?v=20261105" defer></script>

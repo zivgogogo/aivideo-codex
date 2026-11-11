@@ -2156,3 +2156,10 @@ $("#nodes").addEventListener("change", (e) => {
     e.target.checked;
   changed();
 });
+
+
+window.AIVideoBeforeUpdate = async () => {
+  if (app.drag) throw new Error('请先完成拖动，再更新程序。');
+  await save();
+  if (app.dirty || app.saving) throw new Error('画布尚未保存完成，请稍后再更新。');
+};
