@@ -30,6 +30,13 @@ python3 scripts/setup_project.py
 .venv/bin/python -m backend serve --port 8765
 ```
 
+Linux 导出中文字幕还需要中文字体（macOS 和 Windows 通常已有可用字体）：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y fonts-noto-cjk
+```
+
 ## 开发检查
 
 ```bash
