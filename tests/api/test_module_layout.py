@@ -39,12 +39,15 @@ class ModuleLayoutTests(unittest.TestCase):
                             self.fail("isolated server failed to start")
                         time.sleep(0.05)
                 files = {"/": "canvas/canvas.html", "/canvas": "canvas/canvas.html",
-                         "/studio": "workbench/index.html"}
+                         "/studio": "workbench/index.html",
+                         "/app-update.js": "shared/app-update.js", "/app-update.css": "shared/app-update.css"}
                 for name in ["canvas.js", "canvas.css", "canvas-sync.js", "canvas-compose.js"]:
                     files["/" + name] = "canvas/" + name
                 for url, relative in files.items():
                     with self.subTest(url=url), opener.open(base + url, timeout=2) as response:
                         self.assertEqual(response.read(), (FRONTEND_ROOT / relative).read_bytes())
+                with opener.open(base + "/api/system/update", timeout=2) as response:
+                    self.assertEqual(json.load(response)["repository"], "https://github.com/zivgogogo/aivideo-codex")
                 with self.assertRaises(HTTPError) as error:
                     opener.open(base + "/.env", timeout=2)
                 self.assertEqual(error.exception.code, 404)

@@ -77,7 +77,11 @@ def plan_characters(episodes, folder, client=None):
     for index,batch in enumerate(batches):
         data={'episodes':batch,'known_characters':list(characters.values()),'visual_bible':bible}
         request={'system':BIBLE_SYSTEM,'data':data};cache=folder/(fingerprint(request)+'.json')
+<<<<<<< HEAD
         if cache.exists(): answer=json.loads(cache.read_text(encoding='utf-8'))
+=======
+        if cache.exists(): answer=json.loads(cache.read_text(encoding="utf-8"))
+>>>>>>> 9d683612d4034d4d4ca48f7d1eaef0c510ef09f1
         else:
             answer=answer_json(client.generate(json.dumps(data,ensure_ascii=False),system_prompt=BIBLE_SYSTEM,max_tokens=6000))
             if not isinstance(answer.get('characters'),list): raise ValueError('人物初始化格式无效')
@@ -139,7 +143,11 @@ def plan_episode(source, characters, bible, folder, client=None):
               'beats':batch,'video_outline':[{'beat_ids':[b['beat_id'] for b in u],'estimated_duration':sum(b['duration'] for b in u)} for u in current],
               'previous_exit':clips[-1]['shots'][-1]['continuity_out'] if clips else None}
         request={'system':DIRECTOR_SYSTEM,'data':data};cache=folder/(fingerprint(request)+'.json')
+<<<<<<< HEAD
         if cache.exists(): answer=json.loads(cache.read_text(encoding='utf-8'))
+=======
+        if cache.exists(): answer=json.loads(cache.read_text(encoding="utf-8"))
+>>>>>>> 9d683612d4034d4d4ca48f7d1eaef0c510ef09f1
         else:
             message=json.dumps(data,ensure_ascii=False)
             for attempt in range(3):

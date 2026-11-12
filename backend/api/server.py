@@ -6,15 +6,40 @@ import mimetypes
 from pathlib import Path
 from urllib.parse import urlsplit, parse_qs, unquote
 import uuid
+import threading
 
 from core.store import Store, DEFAULT_PROJECT, safe_path, media_url, find, timestamp
-from core.paths import FRONTEND_ROOT
+from core.paths import FRONTEND_ROOT, PROJECT_ROOT
+from backend.updater import UpdateManager, UpdateError
 from backend.workflow.pipeline import Pipeline
 
 
 def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
     store = Store(root)
     static = FRONTEND_ROOT / "canvas"
+    request_gate = threading.RLock()
+    updates = None
+
+    def busy_reason():
+        if pipeline is not None:
+            if pipeline.run_thread and pipeline.run_thread.is_alive():
+                return "全剧制作仍在运行，请先暂停并等待当前任务完成。"
+            with pipeline.guard:
+                if any(not future.done() for _, future in pipeline.active.values()):
+                    return "当前仍有制作任务，请等待任务保存完成后更新。"
+        if store.path.is_file() and any(j.get("status") in {"queued", "running"} for j in store.read().get("jobs", [])):
+            return "当前仍有制作任务，请等待任务保存完成后更新。"
+        with canvas.lock:
+            for path in canvas.root.glob("*/project.json"):
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if any(j.get("status") in {"queued", "running"} for j in data.get("jobs", [])):
+                    return "画布仍有生成或规划任务，请等待任务保存完成后更新。"
+        return ""
+
+    def delayed_shutdown():
+        timer = threading.Timer(.4, server.shutdown)
+        timer.daemon = True
+        timer.start()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
@@ -90,6 +115,10 @@ def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
             try:
                 self.check_origin()
                 parsed = urlsplit(self.path)
+                if parsed.path == '/api/system/update':
+                    return self.json_response(updates.snapshot())
+                if parsed.path in {'/app-update.js', '/app-update.css'}:
+                    return self.file_response(FRONTEND_ROOT / 'shared' / parsed.path[1:])
                 if parsed.path.startswith('/api/canvas/'):
                     query = parse_qs(parsed.query)
                     pid = query.get('project_id', [''])[0]
@@ -136,6 +165,19 @@ def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
         def do_POST(self):
             try:
                 self.check_origin()
+                # Checking a version does not block ordinary saves or generation.
+                if urlsplit(self.path).path == '/api/system/update/check':
+                    return self._do_POST()
+                with request_gate:
+                    if updates and (updates.stopping or updates.locked()):
+                        return self.json_response({"error": "程序正在更新，请稍候再修改或生成。"}, 409)
+                    return self._do_POST()
+            except Exception as exc:
+                self.error_response(exc)
+
+        def _do_POST(self):
+            try:
+                self.check_origin()
                 parsed=urlsplit(self.path)
                 if parsed.path=='/api/canvas/upload-media':
                     if self.headers.get('Content-Type','').split(';')[0]!='application/octet-stream':raise ValueError('上传文件格式无效')
@@ -152,6 +194,10 @@ def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
                 if not isinstance(body, dict):
                     raise ValueError("请求必须是JSON对象")
                 path = urlsplit(self.path).path
+                if path == '/api/system/update/check':
+                    return self.json_response(updates.check())
+                if path == '/api/system/update/apply':
+                    return self.json_response(updates.apply(body.get('target_sha'), busy_reason, delayed_shutdown))
                 if path.startswith('/api/canvas/'):
                     pid, eid, nid = (body.get(k, '') for k in ('project_id', 'episode_id', 'node_id'))
                     if path == '/api/canvas/create':
@@ -241,6 +287,8 @@ def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
                 else:
                     return self.json_response({"error": "未找到接口"}, 404)
                 self.json_response(result)
+            except UpdateError as exc:
+                self.error_response(exc, 409)
             except Exception as exc:
                 self.error_response(exc)
 
@@ -255,13 +303,23 @@ def serve(root=DEFAULT_PROJECT, port=8765, canvas_only=False, canvas_root=None):
             pipeline = Pipeline(store)
         from backend.canvas.studio import StudioCanvas
         canvas = StudioCanvas(canvas_root, store)
+        updates = UpdateManager(PROJECT_ROOT, port, store.input_root, canvas_only, canvas_root)
+        updates.register()
         print(f"短剧制作工作台 http://127.0.0.1:{port}", flush=True)
         server.serve_forever()
     finally:
         try:
             if canvas is not None:
-                canvas.pool.shutdown(wait=False)
+                canvas.pool.shutdown(wait=bool(updates and updates.stopping))
             if pipeline is not None:
-                pipeline.pause()
+                if updates and updates.stopping:
+                    # The update guard already requires an idle pipeline. Avoid
+                    # changing an idle/completed project's saved run status.
+                    pipeline.pause_event.set()
+                else:
+                    pipeline.pause()
+                pipeline.executor.shutdown(wait=bool(updates and updates.stopping))
         finally:
             server.server_close()
+            if updates is not None:
+                updates.close()

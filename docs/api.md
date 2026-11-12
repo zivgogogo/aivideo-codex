@@ -15,6 +15,18 @@
 | `GET /api/canvas/graph?project_id=...&episode_id=...` | 画布节点、连线与排版 |
 | `/media/...`、`/canvas-media/...` | 当前项目范围内的素材访问 |
 
+## 程序更新
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /api/system/update` | 本机正在运行的版本、最近检查结果、更新阶段与消息 |
+| `POST /api/system/update/check`，JSON `{}` | 检查固定公共仓库的 `main`；只获取代码对象，不替换运行代码 |
+| `POST /api/system/update/apply`，JSON `{"target_sha":"检查返回的完整 SHA"}` | 安装本次检查的版本、重启原服务；不接受自定义仓库或命令 |
+
+检查返回 `running_sha`、`target_sha`、`available`、`can_update`、`commits`、`message` 等字段。安装前请确认 `can_update`；检查失败的原因也由 `message` 返回。版本不匹配、有源码修改、有任务或其他服务时，安装返回 HTTP 409。安装被接受后返回 `operation` 和 `phase`，页面轮询 GET 接口，跨越重启重连；只有阶段为 `complete` 且运行版本匹配目标时才刷新页面。
+
+接口仅在本机可用，沿用 Host/Origin 校验。更新期间禁止其他修改请求。实现见 `backend/updater.py`，页面共享组件见 `frontend/shared/`。部署及恢复说明见 [初始化与启动指南](初始化与启动指南.md#8-以后怎么更新)。
+
 ## 工作台修改接口
 
 | POST 接口 | 用途 |
