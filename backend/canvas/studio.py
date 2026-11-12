@@ -377,7 +377,7 @@ class StudioCanvas(CanvasWorkspace):
         def work(d):
             if any(j.get('episode_id')==eid and j['status'] in {'running','queued'} for j in d['jobs']):raise ValueError('请先等待本集任务完成')
             item=find(d.get('graph_history',{}).get(eid,[]),aid)
-            restored=json.loads(safe_path(self.path(pid),item['path']).read_text())
+            restored=json.loads(safe_path(self.path(pid),item['path']).read_text(encoding='utf-8'))
             current=d['graphs'][eid];self._archive(d,eid,current,'恢复前快照')
             restored['revision']=current['revision']+1;layout.arrange(restored);d['graphs'][eid]=restored
             return {'ok':True}
@@ -543,7 +543,7 @@ class StudioCanvas(CanvasWorkspace):
             for name in ('response.json','task-result.json','result.json'):
                 p=folder/name
                 if p.exists():
-                    data=json.loads(p.read_text());url=data.get('output',{}).get('video_url')
+                    data=json.loads(p.read_text(encoding='utf-8'));url=data.get('output',{}).get('video_url')
                     if url:return url
         return None
 

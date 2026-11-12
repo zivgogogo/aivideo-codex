@@ -136,7 +136,7 @@ class CanvasWorkspace:
         self.active={}
         for p in self.root.glob('*/project.json'):
             with self.lock:
-                data=json.loads(p.read_text())
+                data=json.loads(p.read_text(encoding='utf-8'))
                 changed=False
                 for job in data.get('jobs',[]):
                     if job['status'] in {'running','queued'}:
@@ -153,7 +153,7 @@ class CanvasWorkspace:
         return safe_path(self.root,pid)
 
     def read(self,pid):
-        return json.loads((self.path(pid)/'project.json').read_text())
+        return json.loads((self.path(pid)/'project.json').read_text(encoding='utf-8'))
 
     def save(self,data):
         data['updated_at']=now()
@@ -187,7 +187,7 @@ class CanvasWorkspace:
         result=[]
         with self.lock:
             for p in self.root.glob('*/project.json'):
-                d=json.loads(p.read_text())
+                d=json.loads(p.read_text(encoding='utf-8'))
                 result.append({k:d.get(k) for k in ('id','title','status','created_at','updated_at','legacy','mode') } | {'episode_count':len(d['episodes'])})
         return sorted(result,key=lambda p:p.get('created_at',''),reverse=True)
 
